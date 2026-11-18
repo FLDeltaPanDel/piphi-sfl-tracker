@@ -35,6 +35,51 @@ def _secret(key, default=None):
         return default
 
 
+def show_sheet_problem(e: Exception, sa: dict, url: str):
+    """Explain exactly why the Google Sheet couldn't be opened."""
+    import re
+    name = type(e).__name__
+    cause = e.__cause__ or e
+    google_msg = str(cause)
+    try:  # gspread's APIError carries Google's own JSON message
+        google_msg = cause.response.json()["error"]["message"]
+    except Exception:
+        pass
+    robot = sa.get("client_email", "(no client_email found in your key!)")
+    project = sa.get("project_id", "?")
+    m = re.search(r"/d/([a-zA-Z0-9_-]+)", url)
+    sheet_id = m.group(1) if m else url
+    low = google_msg.lower()
+
+    st.error("**The app can't open your Google Sheet yet.** Here's exactly what's wrong:")
+    if "has not been used" in low or "is disabled" in low or "api has not" in low:
+        which = "Google Drive API" if "drive" in low else "Google Sheets API"
+        api = "drive" if "drive" in low else "sheets"
+        st.markdown(f"**Cause: the {which} is turned off** in Google Cloud project `{project}`.\n\n"
+                    f"**Fix:** open https://console.cloud.google.com/apis/library/{api}.googleapis.com?project={project} "
+                    "and click **Enable**. Wait 2–3 minutes, then reboot the app.")
+    elif name in ("PermissionError", "SpreadsheetNotFound") or "permission" in low:
+        st.markdown("**Cause: the sheet isn't shared with the robot account the app is using.**\n\n"
+                    "**Fix:** open your Google Sheet → **Share** → paste this exact email → **Editor** → "
+                    "uncheck *Notify people* → **Share**:")
+        st.code(robot, language=None)
+        st.markdown("If that email is already in the Share list, the link in `sheet_url` points to a "
+                    "**different sheet**. The app is trying to open the sheet with this ID:")
+        st.code(sheet_id, language=None)
+        st.markdown("Compare it with the part after `/d/` in your sheet's address bar. If they don't match, "
+                    "fix `sheet_url` in Secrets. If the sheet belongs to a **@ufl.edu** account, UF may block "
+                    "sharing it. Make the sheet in a personal Gmail instead.")
+    elif "invalid_grant" in low or "jwt" in low or "private key" in low or name == "ValueError":
+        st.markdown("**Cause: the key in `gcp_json` is incomplete or was deleted in Google Cloud.**\n\n"
+                    "**Fix:** create a new JSON key (Service Accounts → ⋮ → Manage keys → Add key) and paste "
+                    "the whole file between the `'''` lines in Secrets.")
+    else:
+        st.markdown("Something else went wrong. Send this whole box to whoever is helping you.")
+    with st.expander("Details for troubleshooting"):
+        st.write({"error": name, "google_says": google_msg, "robot_email": robot,
+                  "key_project": project, "sheet_id": sheet_id})
+
+
 @st.cache_resource
 def get_store():
     import json
@@ -54,12 +99,7 @@ def get_store():
         try:
             return GoogleSheetStore(sa, url)
         except Exception as e:
-            name = type(e).__name__
-            hint = ("Share the Google Sheet with the robot email (client_email in your key) as Editor."
-                    if name in ("SpreadsheetNotFound", "PermissionError") else
-                    "Check that (1) you pasted the WHOLE key file into gcp_json, (2) the Google Sheets "
-                    "API and Google Drive API are both turned on, and (3) sheet_url is the full link.")
-            st.error(f"Couldn't open your Google Sheet ({name}). {hint}")
+            show_sheet_problem(e, dict(sa), str(url))
             st.stop()
     return SQLiteStore(_secret("db_path", "data/sfl.db"))
 
