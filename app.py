@@ -20,7 +20,7 @@ st.set_page_config(page_title="SFL Points Tracker", page_icon="🏹", layout="ce
 
 st.markdown("""
 <style>
-  .block-container {padding-top: 1.2rem; padding-bottom: 4rem;}
+  .block-container {padding-top: 3.5rem; padding-bottom: 4rem;}
   div[data-testid="stMetricValue"] {font-size: 1.6rem;}
   .small {font-size: .85rem; opacity: .75;}
 </style>
