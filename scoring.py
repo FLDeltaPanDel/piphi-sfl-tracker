@@ -78,10 +78,25 @@ def requirement_text(ev: dict, size: int) -> str:
     return "TBA"
 
 
+def attended_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Rows that count as attended: marked Attended, or signed up and verified by an admin."""
+    return df[(df["status"] == "Attended") | ((df["status"] == "Signed Up") & (df["verified"] == "True"))]
+
+
+def current_semester(events: pd.DataFrame) -> str | None:
+    """The semester of the most recent event that has started (falls back to the first semester)."""
+    t = now()
+    started = [(parse_dt(s), sem) for s, sem in zip(events["start"], events["semester"])]
+    started = [x for x in started if x[0] and x[0] <= t]
+    if started:
+        return max(started)[1]
+    return events["semester"].iloc[0] if len(events) else None
+
+
 def event_counts(event_id: str, signups: pd.DataFrame) -> dict:
     s = signups[signups["event_id"] == event_id]
     active = s[s["status"].isin(["Signed Up", "Attended"])]
-    attended = s[s["status"] == "Attended"]
+    attended = attended_rows(s)
     verified = attended[attended["verified"] == "True"]
     return {
         "signed_up": int(len(active)),

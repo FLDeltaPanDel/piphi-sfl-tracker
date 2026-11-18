@@ -37,9 +37,30 @@ def _secret(key, default=None):
 
 @st.cache_resource
 def get_store():
+    import json
     sa, url = _secret("gcp_service_account"), _secret("sheet_url")
+    raw = _secret("gcp_json")  # the whole key file pasted as one block (easiest)
+    if raw and not sa:
+        try:
+            sa = json.loads(raw)
+        except Exception:
+            st.error("The Google key in your Secrets isn't valid. Open the downloaded .json key file, "
+                     "copy ALL of it, and paste it between the triple quotes after gcp_json = .")
+            st.stop()
+    if url and not sa:
+        st.error("Found sheet_url in Secrets but no Google key (gcp_json). See step 3 of SETUP.")
+        st.stop()
     if sa and url:
-        return GoogleSheetStore(sa, url)
+        try:
+            return GoogleSheetStore(sa, url)
+        except Exception as e:
+            name = type(e).__name__
+            hint = ("Share the Google Sheet with the robot email (client_email in your key) as Editor."
+                    if name in ("SpreadsheetNotFound", "PermissionError") else
+                    "Check that (1) you pasted the WHOLE key file into gcp_json, (2) the Google Sheets "
+                    "API and Google Drive API are both turned on, and (3) sheet_url is the full link.")
+            st.error(f"Couldn't open your Google Sheet ({name}). {hint}")
+            st.stop()
     return SQLiteStore(_secret("db_path", "data/sfl.db"))
 
 
@@ -102,7 +123,7 @@ T = stand["table"]
 
 # ------------------------------------------------------------------ access gate
 if S.get("access_code") and not st.session_state.get("in"):
-    st.title("🍷 SFL Points Tracker")
+    st.title("SFL Points Tracker")
     code = st.text_input("Chapter access code", type="password")
     if st.button("Enter", type="primary"):
         if code == S["access_code"]:
@@ -149,7 +170,7 @@ def tier_label():
 
 # ------------------------------------------------------------------ sidebar
 with st.sidebar:
-    st.markdown(f"### 🍷 {S['chapter_name']}")
+    st.markdown(f"### {S['chapter_name']}")
     st.caption(f"Data stored in: {store.name}")
 
 # tap-friendly nav across the top (works well on phones)
@@ -336,7 +357,7 @@ elif page == "🙋 Me":
     if me:
         mine = signups[signups["member"] == me].merge(
             events[["id", "name", "semester", "max_points"]], left_on="event_id", right_on="id", how="left")
-        att = mine[mine["status"] == "Attended"]
+        att = sc.attended_rows(mine)
         c1, c2, c3 = st.columns(3)
         c1.metric("Events attended", int(att["event_id"].nunique()))
         c2.metric("Verified", int(att[att["verified"] == "True"]["event_id"].nunique()))
@@ -354,8 +375,9 @@ elif page == "🙋 Me":
 # ================================================================== ENGAGEMENT
 elif page == "📊 Engagement":
     st.title("Chapter engagement")
+    cur = sc.current_semester(events) or semesters()[-1]
     sem = st.segmented_control("Semester", [*semesters(), "Whole year"],
-                               default=semesters()[-1], key="engsem") or semesters()[-1]
+                               default=cur, key="engsem") or cur
     ev = events if sem == "Whole year" else events[events["semester"] == sem]
     su = signups[signups["event_id"].isin(ev["id"])]
 
@@ -363,11 +385,9 @@ elif page == "📊 Engagement":
     c1, c2, c3 = st.columns(3)
     c1.metric("Points", sc._fmt(tsem["points"].sum() if len(tsem) else 0))
     c2.metric("Events met", f"{int((tsem['state'].str.startswith('✅')).sum()) if len(tsem) else 0} / {len(tsem)}")
-    engaged = su[su["status"] == "Attended"]["member"].nunique()
+    engaged = sc.attended_rows(su)["member"].nunique()
     c3.metric("Members engaged", f"{engaged} / {len(active_members)}")
 
-   
-    
 
 
 # ================================================================== ADMIN
@@ -384,6 +404,12 @@ elif page == "🔐 Admin":
         st.stop()
     if pin == DEFAULT_SETTINGS["admin_pin"] and not _secret("admin_pin"):
         st.warning("You're still using the default admin PIN — change it in the Settings tab.")
+
+    if isinstance(store, SQLiteStore):
+        st.info("Data is stored in a **local file**. That's fine on your own computer, but if this app is "
+                "online, data will be lost when it restarts. Connect the Google Sheet (SETUP.md, Parts 3–4).")
+    else:
+        st.caption("✅ Data is saving to your Google Sheet.")
 
     t1, t2, t3, t4, t5 = st.tabs(["Attendance", "Events", "Roster", "Settings", "Backup"])
 
@@ -420,6 +446,8 @@ elif page == "🔐 Admin":
                             ch[col] = r[col] or ""
                     if bool(r["verified"]) != bool(o["verified"]):
                         ch["verified"] = str(bool(r["verified"]))
+                    if r["verified"] and r["status"] == "Signed Up":
+                        ch["status"] = "Attended"  # verified means they went
                     ri = "" if pd.isna(r["items"]) else int(r["items"])
                     oi = "" if pd.isna(o["items"]) else int(o["items"])
                     if ri != oi:
@@ -438,7 +466,7 @@ elif page == "🔐 Admin":
                     changed(); st.rerun()
 
             st.markdown("**Add verified attendance** (e.g. from the OSFL sign-in sheet)")
-            already = set(s[s["status"] == "Attended"]["member"])
+            already = set(s[(s["status"] == "Attended") | ((s["status"] == "Signed Up") & s["verified"])]["member"])
             add = st.multiselect("Members", [m for m in active_members if m not in already], key=f"add{eid}")
             items = 0
             if ev_row["req_type"] == "items":
