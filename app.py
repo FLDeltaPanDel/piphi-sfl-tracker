@@ -15,7 +15,7 @@ import scoring as sc
 from seed_data import DEFAULT_SETTINGS, SEED_EVENTS
 from storage import TABLES, GoogleSheetStore, SQLiteStore, new_id
 
-st.set_page_config(page_title="SFL Points Tracker", page_icon="🍷", layout="centered",
+st.set_page_config(page_title="SFL Points Tracker", page_icon="🏹", layout="centered",
                    initial_sidebar_state="collapsed")
 
 st.markdown("""
