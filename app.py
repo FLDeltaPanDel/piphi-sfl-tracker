@@ -366,44 +366,8 @@ elif page == "📊 Engagement":
     engaged = su[su["status"] == "Attended"]["member"].nunique()
     c3.metric("Members engaged", f"{engaged} / {len(active_members)}")
 
-    if not active_members:
-        st.info("Add your roster in Admin → Roster to see member engagement.")
-    else:
-        rows = []
-        for m in active_members:
-            s = su[su["member"] == m]
-            att = s[s["status"] == "Attended"]
-            rows.append({"Member": m,
-                         "Attended": int(att["event_id"].nunique()),
-                         "Verified": int(att[att["verified"] == "True"]["event_id"].nunique()),
-                         "Signed up": int((s["status"] == "Signed Up").sum()),
-                         "No-shows": int((s["status"] == "No-Show").sum()),
-                         "Late cancels": int(((s["status"] == "Cancelled") & (s["late_cancel"] == "True")).sum()),
-                         "Items": int(sum(sc.to_num(x) for x in att["items"]))})
-        board = pd.DataFrame(rows).sort_values(["Verified", "Attended"], ascending=False)
-        st.subheader("Leaderboard")
-        st.dataframe(board, hide_index=True, width="stretch")
-
-        zero = board[board["Attended"] == 0]["Member"].tolist()
-        if zero:
-            with st.expander(f"Not engaged yet this {('year' if sem == 'Whole year' else 'semester')} ({len(zero)})"):
-                st.write(", ".join(zero))
-
-        st.subheader("Member × event grid")
-        st.caption("✅ verified · 📝 self-reported · 🗓️ signed up · ❌ no-show · ↩️ cancelled")
-        sym = {"Signed Up": "🗓️", "No-Show": "❌", "Cancelled": "↩️"}
-        evs = ev.copy()
-        evs["dt"] = evs["start"].apply(sc.parse_dt)
-        evs = evs.sort_values("dt", na_position="last")
-        grid = pd.DataFrame(index=active_members, columns=evs["name"].tolist()).fillna("")
-        name_of = dict(zip(evs["id"], evs["name"]))
-        for s in su.to_dict("records"):
-            if s["member"] in grid.index and s["event_id"] in name_of:
-                v = ("✅" if s["verified"] == "True" else "📝") if s["status"] == "Attended" else sym.get(s["status"], "")
-                grid.loc[s["member"], name_of[s["event_id"]]] = v
-        st.dataframe(grid, width="stretch")
-        st.download_button("Download engagement (CSV)", board.to_csv(index=False).encode(),
-                           file_name=f"engagement_{sem.replace(' ', '_')}.csv", mime="text/csv")
+   
+    
 
 
 # ================================================================== ADMIN
